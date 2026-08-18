@@ -2,8 +2,8 @@
 // @name            Zen Command Palette
 // @description     A powerful, extensible command interface for Zen Browser, seamlessly integrated into the URL bar. Inspired by Raycast and Arc.
 // @author          Bibek Bhusal
-// @version         1.8.97-b
-// @lastUpdated     2026-07-28
+// @version         1.8.98-b
+// @lastUpdated     2026-08-18
 // @ignorecache
 // @homepage        https://github.com/Vertex-Mods/Zen-Command-Palette
 // @onlyonce
@@ -249,6 +249,7 @@
     static DYNAMIC_EXTENSION_ENABLE_DISABLE = "zen-command-palette.dynamic.extension-enable-disable";
     static DYNAMIC_EXTENSION_UNINSTALL = "zen-command-palette.dynamic.extension-uninstall";
     static COMMAND_SETTINGS_FILE = "zen-command-palette.settings-file-path";
+    static COMMAND_TRUST_KEY = "zen-command-palette.command-trust-key";
     static defaultValues = {
       [CommandPalettePREFS.PREFIX_REQUIRED]: !1,
       [CommandPalettePREFS.PREFIX]: ":",
@@ -314,6 +315,12 @@
     }
     static get commandSettingsFile() {
       return this.getPref(this.COMMAND_SETTINGS_FILE);
+    }
+    static get commandTrustKey() {
+      return this.getPref(this.COMMAND_TRUST_KEY, null);
+    }
+    static set commandTrustKey(val) {
+      this.setPref(this.COMMAND_TRUST_KEY, val);
     }
     static setTempMaxRichResults(value) {
       if (_originalMaxResults === null)
@@ -1191,6 +1198,83 @@
     return (await getSearchService()).getVisibleEngines();
   }
 
+  // command-palette/utils/trust.js
+  var _cachedTrustKeyHex = null, _cachedCryptoKey = null, _approvedHashes = null;
+  function getOSKeyStore() {
+    return ChromeUtils.importESModule("resource://gre/modules/OSKeyStore.sys.mjs").OSKeyStore;
+  }
+  function generateTrustKey() {
+    let bytes = crypto.getRandomValues(new Uint8Array(32));
+    return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  async function getOrCreateTrustKey() {
+    let key = PREFS2.commandTrustKey;
+    if (key && !/^[0-9a-f]{64}$/.test(key))
+      try {
+        return await getOSKeyStore().decrypt(key, "zen-command-palette");
+      } catch (e) {
+        PREFS2.debugError("Failed to decrypt command trust key:", e), key = null;
+      }
+    if (!key) {
+      key = generateTrustKey();
+      try {
+        PREFS2.commandTrustKey = await getOSKeyStore().encrypt(key);
+      } catch (e) {
+        PREFS2.debugError("OSKeyStore unavailable:", e), PREFS2.commandTrustKey = key;
+      }
+    }
+    return key;
+  }
+  async function hmacCode(str) {
+    let keyHex = await getOrCreateTrustKey();
+    if (keyHex !== _cachedTrustKeyHex) {
+      let keyBytes = new Uint8Array(keyHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
+      _cachedCryptoKey = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, !1, ["sign"]), _cachedTrustKeyHex = keyHex;
+    }
+    let data = (/* @__PURE__ */ new TextEncoder()).encode(str), sig = await crypto.subtle.sign("HMAC", _cachedCryptoKey, data);
+    return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function _getHashesFilePath() {
+    try {
+      let file = Services.dirsvc.get("ProfD", Ci.nsIFile).clone();
+      return file.append("zen-commands-hashes.json"), file.path;
+    } catch (e) {
+      return PREFS2.debugError("Could not construct hashes file path:", e), null;
+    }
+  }
+  async function loadApprovedHashes() {
+    if (_approvedHashes)
+      return _approvedHashes;
+    let path = _getHashesFilePath();
+    if (!path)
+      return _approvedHashes = {}, _approvedHashes;
+    try {
+      if (await IOUtils.exists(path)) {
+        let content = await IOUtils.readJSON(path);
+        _approvedHashes = content && typeof content === "object" ? content : {}, PREFS2.debugLog("Approved command hashes loaded from", path);
+      } else
+        _approvedHashes = {};
+    } catch (e) {
+      PREFS2.debugError("Error loading approved command hashes:", e), _approvedHashes = {};
+    }
+    return _approvedHashes;
+  }
+  async function trustHash(hash) {
+    let hashes = await loadApprovedHashes();
+    hashes[hash] = !0;
+    let path = _getHashesFilePath();
+    if (!path) {
+      PREFS2.debugError("Could not construct hashes file path. Cannot save.");
+      return;
+    }
+    try {
+      let data = (/* @__PURE__ */ new TextEncoder()).encode(JSON.stringify(hashes, null, 2));
+      await IOUtils.write(path, data, { tmpPath: path + ".tmp" }), PREFS2.debugLog("Approved command hashes saved to", path);
+    } catch (e) {
+      PREFS2.debugError("Error saving approved command hashes:", e);
+    }
+  }
+
   // command-palette/dynamic-commands.js
   var commandChainUtils = {
     async openLink(params) {
@@ -1625,9 +1709,22 @@
       if (cmd.type === "js")
         commandFunc = async () => {
           try {
+            let approvedHashes = await loadApprovedHashes(), codeHash = await hmacCode(cmd.code);
+            if (!approvedHashes[codeHash]) {
+              let preview = cmd.code.length > 200 ? cmd.code.slice(0, 200) + "…" : cmd.code;
+              if (!window.confirm(`Run custom JS command "${cmd.name}"?
+
+This will execute the following JavaScript in the browser:
+
+${preview}
+
+Only proceed if you trust the source of this command. You will not be asked again unless the code changes.`))
+                return;
+              await trustHash(codeHash);
+            }
             let Cu = Components.utils, sandbox = Cu.Sandbox(window, {
               sandboxPrototype: window,
-              wantXrays: !1
+              wantXrays: !0
             });
             Cu.evalInSandbox(cmd.code, sandbox);
           } catch (e) {
@@ -2283,7 +2380,7 @@
           }), itemContainer.appendChild(deleteButton), listContainer.appendChild(itemContainer);
         });
       };
-      if (this._boundEditorClickHandler = (e) => {
+      if (this._boundEditorClickHandler = async (e) => {
         let target = e.target;
         if (target.matches(".function-actions button[data-action]")) {
           let action = target.dataset.action, functionSchema = commandChainFunctions[action];
@@ -2303,7 +2400,7 @@
           return;
         }
         if (target.id === "save-custom-cmd") {
-          self._saveCustomCommand(cmd, currentChain);
+          await self._saveCustomCommand(cmd, currentChain);
           return;
         }
         if (target.id === "cancel-custom-cmd") {
@@ -2341,7 +2438,7 @@
         editorContainer.removeEventListener("click", this._boundEditorClickHandler), this._boundEditorClickHandler = null;
       this._modalElement.querySelector("#custom-commands-view").hidden = !1, this._modalElement.querySelector("#custom-command-editor").hidden = !0, this._renderCustomCommands();
     },
-    _saveCustomCommand(cmd, currentChain) {
+    async _saveCustomCommand(cmd, currentChain) {
       let editor = this._modalElement.querySelector("#custom-command-editor"), name = editor.querySelector("#custom-cmd-name").value.trim(), icon = editor.querySelector("#custom-cmd-icon").value.trim();
       if (!name) {
         alert("Command name cannot be empty.");
@@ -2353,6 +2450,8 @@
       if (cmd.type === "js") {
         let code = editor.querySelector("#custom-cmd-code").value;
         newCmd.code = code;
+        let hash = await hmacCode(code);
+        await trustHash(hash);
       } else
         newCmd.commands = currentChain;
       let commands2 = this._currentSettings.customCommands || [], existingIndex = commands2.findIndex((c) => c.id === cmd.id);
@@ -3022,7 +3121,7 @@
         PREFS2.debugError("Could not load native globalActions, native commands will be unavailable.", e);
       }
       this.Settings = SettingsModal, this.Settings.init(this), PREFS2.debugLog("Settings modal initialized."), await this.loadUserConfig(), this.applyUserConfig(), PREFS2.debugLog("User config loaded and applied."), initShortcutRegistry(), PREFS2.debugLog("Shortcut registry initialized."), this.attachUrlbarListeners();
-      let { UrlbarUtils, UrlbarProvider: UrlbarProviderFromUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"), UrlbarProvider = UrlbarProviderFromUtils;
+      let { UrlbarUtils, UrlbarProvider: UrlbarProviderFromUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"), { UrlbarShared } = ChromeUtils.importESModule("chrome://browser/content/urlbar/UrlbarShared.mjs"), UrlbarProvider = UrlbarProviderFromUtils;
       if (typeof UrlbarProvider > "u")
         try {
           ({ UrlbarProvider } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarProvider.sys.mjs"));
@@ -3114,8 +3213,8 @@
                 if (!cmd)
                   return;
                 let shortcut = self.getShortcutForCommand(cmd.key), result = new UrlbarResult({
-                  type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
-                  source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+                  type: UrlbarShared.RESULT_TYPE.DYNAMIC,
+                  source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
                   payload: {
                     suggestion: cmd.label,
                     title: cmd.label,
