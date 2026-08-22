@@ -2,8 +2,8 @@
 // @name            Zen Command Palette
 // @description     A powerful, extensible command interface for Zen Browser, seamlessly integrated into the URL bar. Inspired by Raycast and Arc.
 // @author          Bibek Bhusal
-// @version         1.8.98
-// @lastUpdated     2026-08-04
+// @version         1.8.99
+// @lastUpdated     2026-08-21
 // @ignorecache
 // @homepage        https://github.com/Vertex-Mods/Zen-Command-Palette
 // @onlyonce
@@ -139,9 +139,7 @@
   }
 
   // utils/icon.js
-  var svgToUrl = (iconSVG) => {
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(iconSVG)}`;
-  };
+  var svgToUrl = (iconSVG) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(iconSVG)}`;
   var icons = {
     zoomIn: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="context-fill light-dark(black, white)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21l-4.35-4.35M11 8v6m-3-3h6"/></g></svg>',
     zoomOut: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="context-fill light-dark(black, white)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21l-4.35-4.35M8 11h6"/></g></svg>',
@@ -1692,9 +1690,7 @@
             if (tabToMove)
               gZenWorkspaces.moveTabToWorkspace(tabToMove, workspace.uuid), gZenWorkspaces.switchTabIfNeeded(tabToMove);
           },
-          condition: () => {
-            return !!gBrowser.selectedTab;
-          },
+          condition: () => !!gBrowser.selectedTab,
           tags: ["workspace", "move", "tab", workspace.name.toLowerCase()]
         });
       });
@@ -3121,7 +3117,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
         PREFS2.debugError("Could not load native globalActions, native commands will be unavailable.", e);
       }
       this.Settings = SettingsModal, this.Settings.init(this), PREFS2.debugLog("Settings modal initialized."), await this.loadUserConfig(), this.applyUserConfig(), PREFS2.debugLog("User config loaded and applied."), initShortcutRegistry(), PREFS2.debugLog("Shortcut registry initialized."), this.attachUrlbarListeners();
-      let { UrlbarUtils, UrlbarProvider: UrlbarProviderFromUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"), UrlbarProvider = UrlbarProviderFromUtils;
+      let { UrlbarUtils, UrlbarProvider: UrlbarProviderFromUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"), { UrlbarShared } = ChromeUtils.importESModule("chrome://browser/content/urlbar/UrlbarShared.mjs"), UrlbarProvider = UrlbarProviderFromUtils;
       if (typeof UrlbarProvider > "u")
         try {
           ({ UrlbarProvider } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarProvider.sys.mjs"));
@@ -3213,8 +3209,8 @@ Only proceed if you trust the source of this command. You will not be asked agai
                 if (!cmd)
                   return;
                 let shortcut = self.getShortcutForCommand(cmd.key), result = new UrlbarResult({
-                  type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
-                  source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+                  type: UrlbarShared.RESULT_TYPE.DYNAMIC,
+                  source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
                   payload: {
                     suggestion: cmd.label,
                     title: cmd.label,
