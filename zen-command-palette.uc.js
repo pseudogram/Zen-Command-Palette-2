@@ -2,8 +2,8 @@
 // @name            Zen Command Palette
 // @description     A powerful, extensible command interface for Zen Browser, seamlessly integrated into the URL bar. Inspired by Raycast and Arc.
 // @author          Bibek Bhusal
-// @version         1.8.98-b
-// @lastUpdated     2026-08-18
+// @version         1.9.11b
+// @lastUpdated     2026-08-31
 // @ignorecache
 // @homepage        https://github.com/Vertex-Mods/Zen-Command-Palette
 // @onlyonce
@@ -139,9 +139,7 @@
   }
 
   // utils/icon.js
-  var svgToUrl = (iconSVG) => {
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(iconSVG)}`;
-  };
+  var svgToUrl = (iconSVG) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(iconSVG)}`;
   var icons = {
     zoomIn: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="context-fill light-dark(black, white)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21l-4.35-4.35M11 8v6m-3-3h6"/></g></svg>',
     zoomOut: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="context-fill light-dark(black, white)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21l-4.35-4.35M8 11h6"/></g></svg>',
@@ -530,6 +528,26 @@
       condition: () => gBrowser.selectedTab?.group?.isZenFolder,
       icon: "chrome://global/skin/icons/edit.svg",
       tags: ["folder", "rename", "change", "tab", "group"]
+    },
+    {
+      key: "cycle-tab-container",
+      label: "Cycle Tab Container",
+      command: () => {
+        if (!window.ContextualIdentityService)
+          return;
+        let tabToMove = gBrowser.selectedTab;
+        if (!tabToMove || !tabToMove.linkedBrowser)
+          return;
+        let identities = ContextualIdentityService.getPublicIdentities() || [], currentContextId = tabToMove.userContextId || 0, allContexts = [0, ...identities.map((id) => id.userContextId)], nextIndex = (allContexts.indexOf(currentContextId) + 1) % allContexts.length, nextContextId = allContexts[nextIndex], url = tabToMove.linkedBrowser.currentURI.spec;
+        openTrustedLinkIn(url, "tab", {
+          userContextId: nextContextId,
+          relatedToCurrent: !0,
+          triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal()
+        }), gBrowser.removeTab(tabToMove);
+      },
+      condition: () => !!window.ContextualIdentityService && isNotEmptyTab(),
+      icon: "chrome://browser/skin/zen-icons/container-tab.svg",
+      tags: ["container", "cycle", "switch", "tab", "change"]
     },
     {
       key: "rename-tab",
@@ -1024,48 +1042,48 @@
       key: "toggle-zen-library",
       label: "Toggle Zen Library",
       tags: ["Download", "Media", "History", "spaces", "boosts"],
-      command: () => gZenLibrary.toggle(),
-      condition: () => !!gZenLibrary,
+      command: () => window.gZenLibrary.toggle(),
+      condition: () => !!window.gZenLibrary,
       icon: svgToUrl(icons.library)
     },
     {
       key: "open-zen-library-download",
       label: "Open Zen library: Downloads",
       tags: ["Download", "Library"],
-      command: () => gZenLibrary.openTab("downloads"),
-      condition: () => !!gZenLibrary,
+      command: () => window.gZenLibrary.openTab("downloads"),
+      condition: () => !!window.gZenLibrary,
       icon: "chrome://browser/skin/downloads/downloads.svg"
     },
     {
       key: "open-zen-library-history",
       label: "Open Zen library: History",
       tags: ["History", "Library"],
-      command: () => gZenLibrary.openTab("history"),
-      condition: () => !!gZenLibrary,
+      command: () => window.gZenLibrary.openTab("history"),
+      condition: () => !!window.gZenLibrary,
       icon: "chrome://browser/skin/zen-icons/history.svg"
     },
     {
       key: "open-zen-library-media",
       label: "Open Zen library: Media",
       tags: ["media", "Library"],
-      command: () => gZenLibrary.openTab("media"),
-      condition: () => !!gZenLibrary,
+      command: () => window.gZenLibrary.openTab("media"),
+      condition: () => !!window.gZenLibrary,
       icon: "chrome://browser/skin/zen-icons/selectable/image.svg"
     },
     {
       key: "open-zen-library-spaces",
       label: "Open Zen library: Spaces",
       tags: ["spaces", "Library"],
-      command: () => gZenLibrary.openTab("spaces"),
-      condition: () => !!gZenLibrary,
+      command: () => window.gZenLibrary.openTab("spaces"),
+      condition: () => !!window.gZenLibrary,
       icon: "chrome://browser/skin/zen-icons/spaces.svg"
     },
     {
       key: "open-zen-library-boosts",
       label: "Open Zen library: Boosts",
       tags: ["boosts", "Library"],
-      command: () => gZenLibrary.openTab("boosts"),
-      condition: () => !!gZenLibrary,
+      command: () => window.gZenLibrary.openTab("boosts"),
+      condition: () => !!window.gZenLibrary,
       icon: "chrome://browser/skin/zen-icons/boost.svg"
     },
     {
@@ -1692,9 +1710,7 @@
             if (tabToMove)
               gZenWorkspaces.moveTabToWorkspace(tabToMove, workspace.uuid), gZenWorkspaces.switchTabIfNeeded(tabToMove);
           },
-          condition: () => {
-            return !!gBrowser.selectedTab;
-          },
+          condition: () => !!gBrowser.selectedTab,
           tags: ["workspace", "move", "tab", workspace.name.toLowerCase()]
         });
       });
@@ -3121,7 +3137,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
         PREFS2.debugError("Could not load native globalActions, native commands will be unavailable.", e);
       }
       this.Settings = SettingsModal, this.Settings.init(this), PREFS2.debugLog("Settings modal initialized."), await this.loadUserConfig(), this.applyUserConfig(), PREFS2.debugLog("User config loaded and applied."), initShortcutRegistry(), PREFS2.debugLog("Shortcut registry initialized."), this.attachUrlbarListeners();
-      let { UrlbarUtils, UrlbarProvider: UrlbarProviderFromUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"), { UrlbarShared } = ChromeUtils.importESModule("chrome://browser/content/urlbar/UrlbarShared.mjs"), UrlbarProvider = UrlbarProviderFromUtils;
+      let { UrlbarProvider: UrlbarProviderFromUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"), { UrlbarShared } = ChromeUtils.importESModule("chrome://browser/content/urlbar/UrlbarShared.mjs"), UrlbarProvider = UrlbarProviderFromUtils;
       if (typeof UrlbarProvider > "u")
         try {
           ({ UrlbarProvider } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarProvider.sys.mjs"));
@@ -3152,7 +3168,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
             return "TestProvider";
           }
           get type() {
-            return UrlbarUtils.PROVIDER_TYPE.HEURISTIC;
+            return UrlbarShared.PROVIDER_TYPE.HEURISTIC;
           }
           getPriority() {
             return this._isInPrefixMode ? 1e4 : 0;
