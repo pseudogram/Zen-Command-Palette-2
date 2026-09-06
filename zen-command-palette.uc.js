@@ -2,8 +2,8 @@
 // @name            Zen Command Palette
 // @description     A powerful, extensible command interface for Zen Browser, seamlessly integrated into the URL bar. Inspired by Raycast and Arc.
 // @author          Bibek Bhusal
-// @version         1.9.1
-// @lastUpdated     2026-08-25
+// @version         1.9.11
+// @lastUpdated     2026-09-06
 // @ignorecache
 // @homepage        https://github.com/Vertex-Mods/Zen-Command-Palette
 // @onlyonce
@@ -121,9 +121,9 @@
         }
         if (debugLog(`Checked ${windowCount} windows, found toast: ${foundToast}`), !foundToast && retryCount < maxRetries) {
           retryCount++, debugLog("Toast not found, retrying...");
-          let browserWindow2 = Services.wm.getMostRecentWindow("navigator:browser");
-          if (browserWindow2)
-            browserWindow2.setTimeout(tryReplaceText, retryInterval);
+          let browserWindow = Services.wm.getMostRecentWindow("navigator:browser");
+          if (browserWindow)
+            browserWindow.setTimeout(tryReplaceText, retryInterval);
           else
             debugLog("No browser window found for retry");
         } else if (!foundToast)
@@ -1215,6 +1215,9 @@
   async function getVisibleEngines() {
     return (await getSearchService()).getVisibleEngines();
   }
+  async function getDefaultEngine() {
+    return (await getSearchService()).getDefault();
+  }
 
   // command-palette/utils/trust.js
   var _cachedTrustKeyHex = null, _cachedCryptoKey = null, _approvedHashes = null;
@@ -1293,49 +1296,66 @@
     }
   }
 
+  // utils/open-link.js
+  async function openLink(url, where = "new tab") {
+    if (!url)
+      return !1;
+    let destination = where?.toLowerCase()?.trim();
+    switch (destination) {
+      case "current tab":
+        return openTrustedLinkIn(url, "current"), !0;
+      case "new tab":
+        return openTrustedLinkIn(url, "tab"), !0;
+      case "background tab":
+        return openTrustedLinkIn(url, "tab", { inBackground: !0, relatedToCurrent: !0 }), !0;
+      case "new window":
+        return openTrustedLinkIn(url, "window"), !0;
+      case "incognito":
+      case "private":
+        return window.openTrustedLinkIn(url, "window", { private: !0 }), !0;
+      case "glance": {
+        let manager = window.gZenGlanceManager;
+        if (manager?.openGlance)
+          try {
+            let tabboxRect = gBrowser.tabbox?.getBoundingClientRect(), clickPosition = window.gZenUIManager?._lastClickPosition ?? {
+              clientX: tabboxRect ? tabboxRect.width / 2 : window.innerWidth / 2,
+              clientY: tabboxRect ? tabboxRect.height / 2 : window.innerHeight / 2
+            };
+            return manager.openGlance({
+              url,
+              ...clickPosition,
+              width: 0,
+              height: 0,
+              triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal()
+            }), !0;
+          } catch {
+            break;
+          }
+        break;
+      }
+      case "vsplit":
+      case "hsplit":
+        if (window.gZenViewSplitter) {
+          let sep = destination === "vsplit" ? "vsep" : "hsep", tab1 = gBrowser.selectedTab;
+          await openTrustedLinkIn(url, "tab");
+          let tab2 = gBrowser.selectedTab;
+          return gZenViewSplitter.splitTabs([tab1, tab2], sep, 1), !0;
+        }
+        break;
+      default:
+        break;
+    }
+    return openTrustedLinkIn(url, "tab"), !1;
+  }
+
   // command-palette/dynamic-commands.js
   var commandChainUtils = {
     async openLink(params) {
       let { link, where = "new tab" } = params;
       if (!link)
         return;
-      let whereNormalized = where?.toLowerCase()?.trim();
       try {
-        switch (whereNormalized) {
-          case "current tab":
-            openTrustedLinkIn(link, "current");
-            break;
-          case "new tab":
-            openTrustedLinkIn(link, "tab");
-            break;
-          case "new window":
-            openTrustedLinkIn(link, "window");
-            break;
-          case "incognito":
-          case "private":
-            window.openTrustedLinkIn(link, "window", { private: !0 });
-            break;
-          case "glance":
-            if (window.gZenGlanceManager)
-              window.gZenGlanceManager.openGlance({
-                url: link
-              });
-            else
-              openTrustedLinkIn(link, "tab");
-            break;
-          case "vsplit":
-          case "hsplit":
-            if (window.gZenViewSplitter) {
-              let sep = whereNormalized === "vsplit" ? "vsep" : "hsep", tab1 = gBrowser.selectedTab;
-              await openTrustedLinkIn(link, "tab");
-              let tab2 = gBrowser.selectedTab;
-              gZenViewSplitter.splitTabs([tab1, tab2], sep, 1);
-            } else
-              openTrustedLinkIn(link, "tab");
-            break;
-          default:
-            openTrustedLinkIn(link, "tab");
-        }
+        await openLink(link, where);
       } catch (e) {
         PREFS2.debugError(`Command Chain: Failed to open link "${link}" in "${where}".`, e);
       }
@@ -1413,11 +1433,17 @@
     }));
   }
   async function generateSearchEngineCommands() {
-    return (await getVisibleEngines()).map((engine) => {
-      let engineName = engine.name;
+    let engines = await getVisibleEngines(), defaultEngineName = null;
+    try {
+      defaultEngineName = (await getDefaultEngine())?.name ?? null;
+    } catch (e) {
+      PREFS2.debugError("Failed to get default search engine for command palette.", e);
+    }
+    return engines.map((engine) => {
+      let engineName = engine.name, isDefault = defaultEngineName !== null && engineName === defaultEngineName;
       return {
         key: `search:${engineName}`,
-        label: `Search with: ${engineName}`,
+        label: isDefault ? `Search with: ${engineName} (Default)` : `Search with: ${engineName}`,
         command: () => {
           let gURLBar2 = Services.wm.getMostRecentWindow("navigator:browser").gURLBar;
           if (gURLBar2)
@@ -1427,18 +1453,18 @@
             }, gURLBar2.focus();
         },
         icon: getSearchEngineFavicon(engine),
-        tags: ["search", "engine", engineName.toLowerCase()],
+        tags: isDefault ? ["search", "engine", "default", engineName.toLowerCase()] : ["search", "engine", engineName.toLowerCase()],
         openUrl: !0
       };
     });
   }
   async function generateExtensionEnableDisableCommands() {
-    let addons = await AddonManager.getAddonsByTypes(["extension"]), commands2 = [];
+    let addons = await AddonManager.getAddonsByTypes(["extension"]), commands = [];
     for (let addon of addons) {
       if (addon.isSystem)
         continue;
       if (addon.isActive)
-        commands2.push({
+        commands.push({
           key: `addon:disable:${addon.id}`,
           label: `Disable Extension: ${addon.name}`,
           command: () => addon.disable(),
@@ -1446,7 +1472,7 @@
           tags: ["extension", "addon", "disable", addon.name.toLowerCase()]
         });
       else
-        commands2.push({
+        commands.push({
           key: `addon:enable:${addon.id}`,
           label: `Enable Extension: ${addon.name}`,
           command: () => addon.enable(),
@@ -1454,14 +1480,14 @@
           tags: ["extension", "addon", "enable", addon.name.toLowerCase()]
         });
     }
-    return commands2;
+    return commands;
   }
   async function generateExtensionUninstallCommands() {
-    let addons = await AddonManager.getAddonsByTypes(["extension"]), commands2 = [];
+    let addons = await AddonManager.getAddonsByTypes(["extension"]), commands = [];
     for (let addon of addons) {
       if (addon.isSystem)
         continue;
-      commands2.push({
+      commands.push({
         key: `addon:uninstall:${addon.id}`,
         label: `Uninstall Extension: ${addon.name}`,
         command: () => {
@@ -1472,7 +1498,7 @@
         tags: ["extension", "addon", "uninstall", "remove", addon.name.toLowerCase()]
       });
     }
-    return commands2;
+    return commands;
   }
   async function generateExtensionCommands() {
     return (await AddonManager.getAddonsByTypes(["extension"])).filter((addon) => addon.isActive && !addon.isSystem && addon.optionsURL).map((addon) => ({
@@ -1493,8 +1519,8 @@
   async function generateContainerTabCommands() {
     if (!window.ContextualIdentityService)
       return [];
-    let commands2 = [];
-    commands2.push({
+    let commands = [];
+    commands.push({
       key: "container-tab:open-default",
       label: "Open Tab without Container",
       command: () => {
@@ -1518,10 +1544,10 @@
     });
     let identities = ContextualIdentityService.getPublicIdentities();
     if (!identities || identities.length === 0)
-      return commands2;
+      return commands;
     return identities.forEach((identity) => {
       let name = identity.name || identity.l10nId;
-      commands2.push({
+      commands.push({
         key: `container-tab:open:${identity.userContextId}`,
         label: `Open Tab in: ${name}`,
         command: () => {
@@ -1542,16 +1568,16 @@
           return currentTab && (currentTab.userContextId || 0) !== identity.userContextId;
         }
       });
-    }), commands2;
+    }), commands;
   }
   async function generateActiveTabCommands() {
-    let commands2 = [], tabs = window.gZenWorkspaces?.workspaceEnabled ? window.gZenWorkspaces.allStoredTabs : Array.from(gBrowser.tabs);
+    let commands = [], tabs = window.gZenWorkspaces?.workspaceEnabled ? window.gZenWorkspaces.allStoredTabs : Array.from(gBrowser.tabs);
     for (let tab of tabs) {
       if (!tab.linkedBrowser)
         continue;
       if (tab.hasAttribute("zen-empty-tab"))
         continue;
-      commands2.push({
+      commands.push({
         key: `switch-tab:${tab.label}`,
         label: `Switch to Tab: ${tab.label}`,
         command: () => {
@@ -1565,16 +1591,16 @@
         tags: ["tab", "switch", "active", tab.label.toLowerCase()]
       });
     }
-    return commands2;
+    return commands;
   }
   async function generateUnloadTabCommands() {
-    let commands2 = [], tabs = window.gZenWorkspaces?.workspaceEnabled ? window.gZenWorkspaces.allStoredTabs : Array.from(gBrowser.tabs);
+    let commands = [], tabs = window.gZenWorkspaces?.workspaceEnabled ? window.gZenWorkspaces.allStoredTabs : Array.from(gBrowser.tabs);
     for (let tab of tabs) {
       if (tab.hasAttribute("pending"))
         continue;
       if (tab.hasAttribute("zen-empty-tab") || !tab.linkedBrowser)
         continue;
-      commands2.push({
+      commands.push({
         key: `unload-tab:${tab.linkedBrowser.outerWindowID}-${tab.linkedBrowser.tabId}`,
         label: `Unload tab: ${tab.label}`,
         command: () => gBrowser.discardBrowser(tab),
@@ -1583,12 +1609,12 @@
         tags: ["unload", "sleep", tab.label.toLowerCase()]
       });
     }
-    return commands2;
+    return commands;
   }
   async function generateSineCommands() {
     if (!window.SineAPI)
       return PREFS2.debugLog("SineAPI not found, skipping Sine command generation."), [];
-    let commands2 = [], installedMods = await SineAPI.utils.getMods(), marketplace = window.SineAPI?.manager?.marketplace;
+    let commands = [], installedMods = await SineAPI.utils.getMods(), marketplace = window.SineAPI?.manager?.marketplace;
     if (marketplace) {
       if (!marketplace.items)
         marketplace.init();
@@ -1596,7 +1622,7 @@
       for (let modId in mods)
         if (!installedMods[modId]) {
           let mod = mods[modId];
-          commands2.push({
+          commands.push({
             key: `sine:install:${modId}`,
             label: `Install Sine Mod: ${mod.name}`,
             command: () => {
@@ -1610,7 +1636,7 @@
       PREFS2.debugLog("Sine marketplace object not found. 'Install' commands will be unavailable.");
     for (let modId in installedMods) {
       let mod = installedMods[modId];
-      commands2.push({
+      commands.push({
         key: `sine:uninstall:${modId}`,
         label: `Uninstall Sine Mod: ${mod.name}`,
         command: async () => {
@@ -1634,16 +1660,16 @@
         tags: ["sine", "uninstall", "mod", mod.name.toLowerCase()]
       });
     }
-    return commands2;
+    return commands;
   }
   async function generateFolderCommands() {
     if (!window.gZenFolders)
       return [];
-    let commands2 = [], folders = Array.from(gBrowser.tabContainer.querySelectorAll("zen-folder"));
+    let commands = [], folders = Array.from(gBrowser.tabContainer.querySelectorAll("zen-folder"));
     if (!folders.length)
       return [];
     folders.forEach((folder) => {
-      commands2.push({
+      commands.push({
         key: `folder-delete:${folder.id}`,
         label: `Delete Folder: ${folder.label}`,
         command: () => {
@@ -1660,7 +1686,7 @@
       folders.forEach((folder) => {
         if (activeTab.group === folder)
           return;
-        commands2.push({
+        commands.push({
           key: `folder-move-active-to:${folder.id}`,
           label: `Move Tab to Folder: ${folder.label}`,
           command: () => {
@@ -1687,12 +1713,12 @@
           tags: ["folder", "move", "tab", folder.label.toLowerCase()]
         });
       });
-    return commands2;
+    return commands;
   }
   function generateWorkspaceMoveCommands() {
     if (!window.gZenWorkspaces?.workspaceEnabled)
       return [];
-    let commands2 = [], workspacesData = window.gZenWorkspaces.getWorkspaces();
+    let commands = [], workspacesData = window.gZenWorkspaces.getWorkspaces();
     if (!isNotEmptyTab())
       return [];
     if (!workspacesData)
@@ -1702,7 +1728,7 @@
       workspacesData.forEach((workspace) => {
         if (activeTab.getAttribute("zen-workspace-id") === workspace.uuid)
           return;
-        commands2.push({
+        commands.push({
           key: `workspace-move-active-to:${workspace.uuid}`,
           label: `Move Tab to Workspace: ${workspace.name}`,
           command: () => {
@@ -1714,7 +1740,7 @@
           tags: ["workspace", "move", "tab", workspace.name.toLowerCase()]
         });
       });
-    return commands2;
+    return commands;
   }
   async function generateCustomCommands() {
     let { customCommands } = await Storage.loadSettings();
@@ -2055,15 +2081,15 @@ Only proceed if you trust the source of this command. You will not be asked agai
     async _populateCommandsTab() {
       let container = this._modalElement.querySelector("#commands-list");
       container.innerHTML = "";
-      let allCommands = await this._mainModule.getAllCommandsForConfig(), renderGroup = (title, commands2) => {
-        if (commands2.length === 0)
+      let allCommands = await this._mainModule.getAllCommandsForConfig(), renderGroup = (title, commands) => {
+        if (commands.length === 0)
           return;
         let groupWrapper = parseElement('<div class="commands-group"></div>'), headerHtml = `
         <div class="commands-group-header">
           <h4>${escapeXmlAttribute(title)}</h4>
         </div>
       `;
-        groupWrapper.appendChild(parseElement(headerHtml)), commands2.sort((a, b) => a.label.localeCompare(b.label)).forEach((cmd) => this._renderCommand(groupWrapper, cmd)), container.appendChild(groupWrapper);
+        groupWrapper.appendChild(parseElement(headerHtml)), commands.sort((a, b) => a.label.localeCompare(b.label)).forEach((cmd) => this._renderCommand(groupWrapper, cmd)), container.appendChild(groupWrapper);
       }, nativeCmds = allCommands.filter((c) => c.isNative), staticCmds = allCommands.filter((c) => !c.isDynamic && !c.isNative);
       renderGroup("Native Commands", nativeCmds), renderGroup("Customizable Commands", staticCmds);
       let dynamicGroups = {};
@@ -2470,12 +2496,12 @@ Only proceed if you trust the source of this command. You will not be asked agai
         await trustHash(hash);
       } else
         newCmd.commands = currentChain;
-      let commands2 = this._currentSettings.customCommands || [], existingIndex = commands2.findIndex((c) => c.id === cmd.id);
+      let commands = this._currentSettings.customCommands || [], existingIndex = commands.findIndex((c) => c.id === cmd.id);
       if (existingIndex > -1)
-        commands2[existingIndex] = newCmd;
+        commands[existingIndex] = newCmd;
       else
-        commands2.push(newCmd);
-      this._currentSettings.customCommands = commands2, this._hideCustomCommandEditor();
+        commands.push(newCmd);
+      this._currentSettings.customCommands = commands, this._hideCustomCommandEditor();
     },
     _populateHelpTab() {
       let container = this._modalElement.querySelector("#help-tab-content");
@@ -3137,7 +3163,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
         PREFS2.debugError("Could not load native globalActions, native commands will be unavailable.", e);
       }
       this.Settings = SettingsModal, this.Settings.init(this), PREFS2.debugLog("Settings modal initialized."), await this.loadUserConfig(), this.applyUserConfig(), PREFS2.debugLog("User config loaded and applied."), initShortcutRegistry(), PREFS2.debugLog("Shortcut registry initialized."), this.attachUrlbarListeners();
-      let { UrlbarUtils, UrlbarProvider: UrlbarProviderFromUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"), { UrlbarShared } = ChromeUtils.importESModule("chrome://browser/content/urlbar/UrlbarShared.mjs"), UrlbarProvider = UrlbarProviderFromUtils;
+      let { UrlbarProvider: UrlbarProviderFromUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"), { UrlbarShared } = ChromeUtils.importESModule("chrome://browser/content/urlbar/UrlbarShared.mjs"), UrlbarProvider = UrlbarProviderFromUtils;
       if (typeof UrlbarProvider > "u")
         try {
           ({ UrlbarProvider } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarProvider.sys.mjs"));
@@ -3168,7 +3194,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
             return "TestProvider";
           }
           get type() {
-            return UrlbarUtils.PROVIDER_TYPE.HEURISTIC;
+            return UrlbarShared.PROVIDER_TYPE.HEURISTIC;
           }
           getPriority() {
             return this._isInPrefixMode ? 1e4 : 0;
