@@ -2,8 +2,8 @@
 // @name            Zen Command Palette
 // @description     A powerful, extensible command interface for Zen Browser, seamlessly integrated into the URL bar. Inspired by Raycast and Arc.
 // @author          Bibek Bhusal
-// @version         1.9.11
-// @lastUpdated     2026-09-06
+// @version         1.9.12
+// @lastUpdated     2026-09-07
 // @ignorecache
 // @homepage        https://github.com/Vertex-Mods/Zen-Command-Palette
 // @onlyonce
