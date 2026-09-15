@@ -2967,7 +2967,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
       } else if (cleanQuery.length < PREFS2.minQueryLength)
         return [];
       let lowerQuery = cleanQuery.toLowerCase(), scoredCommands = allCommands.map((cmd) => {
-        let label = cmd.label || "", key = cmd.key || "", tags = (cmd.tags || []).join(" "), labelScore = this.calculateFuzzyScore(label, lowerQuery), keyScore = this.calculateFuzzyScore(key, lowerQuery), tagsScore = this.calculateFuzzyScore(tags, lowerQuery), recencyBonus = 0, recentIndex = this._recentCommands.indexOf(cmd.key);
+        let label = (cmd.label || "").replace(/^[^:]{1,30}: /, ""), key = (cmd.key || "").replace(/^[a-z0-9-]+:/, ""), tags = (cmd.tags || []).join(" "), labelScore = this.calculateFuzzyScore(label, lowerQuery), keyScore = this.calculateFuzzyScore(key, lowerQuery), tagsScore = this.calculateFuzzyScore(tags, lowerQuery), recencyBonus = 0, recentIndex = this._recentCommands.indexOf(cmd.key);
         if (recentIndex > -1)
           recencyBonus = (this.MAX_RECENT_COMMANDS - recentIndex) * 2;
         let score = Math.max(labelScore * 1.5, keyScore, tagsScore * 0.5) + recencyBonus;
