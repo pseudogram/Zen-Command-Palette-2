@@ -3204,7 +3204,8 @@ Only proceed if you trust the source of this command. You will not be asked agai
             return "TestProvider";
           }
           get type() {
-            return this._outranksSearch() ? UrlbarShared.PROVIDER_TYPE.HEURISTIC : UrlbarShared.PROVIDER_TYPE.PROFILE;
+            let T = UrlbarShared.PROVIDER_TYPE;
+            return this._outranksSearch() ? T.HEURISTIC : T.PROFILE ?? T.NETWORK ?? T.HEURISTIC;
           }
           getPriority() {
             return this._isInPrefixMode ? 1e4 : 0;
@@ -3371,7 +3372,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
         if (existingProvider)
           this.provider = existingProvider, PREFS2.debugLog("Using existing shared provider instance.");
         else
-          this.provider = new ZenCommandProvider, UrlbarProvidersManager.registerProvider(this.provider), PREFS2.debugLog("Zen Command Palette provider registered.");
+          this.provider = new ZenCommandProvider, UrlbarProvidersManager.registerProvider(this.provider), PREFS2.debugLog("Zen Command Palette provider registered. PROVIDER_TYPE keys:", Object.keys(UrlbarShared.PROVIDER_TYPE || {}).join(","), "resolved type:", this.provider.type);
       } catch (e) {
         PREFS2.debugError("Failed to create/register Urlbar provider:", e);
       }
