@@ -1615,7 +1615,7 @@
         continue;
       seenTitles.add(title), commands.push({
         key: `history:${url}`,
-        label: `🏛️ ${title}`,
+        label: title,
         searchLabel: title,
         isHistory: !0,
         command: () => openTrustedLinkIn(url, "current"),
@@ -3302,6 +3302,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
                     keywords: cmd?.tags,
                     icon: cmd.icon || "chrome://browser/skin/trending.svg",
                     shortcutContent: shortcut,
+                    pill: cmd.isHistory ? "History" : "",
                     dynamicType: DYNAMIC_TYPE_NAME
                   }
                 });
@@ -3386,7 +3387,8 @@ Only proceed if you trust the source of this command. You will not be asked agai
             return {
               icon: { attributes: { src: result.payload.icon } },
               titleStrong: { textContent: result.payload.title },
-              shortcutContent: { textContent: result.payload.shortcutContent || "" }
+              shortcutContent: { textContent: result.payload.shortcutContent || "" },
+              pill: { textContent: result.payload.pill || "", attributes: { hidden: !result.payload.pill } }
             };
           }
           getViewTemplate() {
@@ -3400,6 +3402,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
                   classList: ["urlbarView-title"],
                   children: [{ name: "titleStrong", tag: "strong" }]
                 },
+                { name: "pill", tag: "span", classList: ["zen-cmd-pill"] },
                 { name: "shortcutContent", tag: "span", classList: ["urlbarView-shortcutContent"] }
               ]
             };

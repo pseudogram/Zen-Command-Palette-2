@@ -753,3 +753,19 @@
   margin-inline-end: 4px;
   pointer-events: none;
 }
+
+.zen-cmd-pill {
+  flex-shrink: 0;
+  margin-inline-start: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75em;
+  font-weight: 600;
+  line-height: 1.5;
+  background-color: color-mix(in srgb, currentColor 14%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+
+  &[hidden] {
+    display: none;
+  }
+}
