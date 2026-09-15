@@ -3010,12 +3010,24 @@ Only proceed if you trust the source of this command. You will not be asked agai
           recencyBonus = (this.MAX_RECENT_COMMANDS - recentIndex) * 2;
         let score = Math.max(labelScore * 1.5, keyScore, tagsScore * 0.5) + recencyBonus;
         return { cmd, score };
-      }).filter((item) => item.score >= PREFS2.minScoreThreshold).filter((item) => this.commandIsVisible(item.cmd));
+      }).filter((item) => item.score >= PREFS2.minScoreThreshold).filter((item) => item.cmd.searchLabel === void 0 || this.matchesWithinWords(item.cmd.searchLabel, lowerQuery)).filter((item) => this.commandIsVisible(item.cmd));
       scoredCommands.sort((a, b) => b.score - a.score);
       let finalCmds = scoredCommands.filter((item) => !item.cmd.isHistory || ++historyRows <= this.MAX_HISTORY_ROWS).map((item) => (item.cmd._score = item.score, item.cmd));
       if (isPrefixMode)
         return finalCmds.slice(0, PREFS2.maxCommandsPrefix);
       return finalCmds.slice(0, PREFS2.maxCommands);
+    },
+    // Page titles are long enough that a query's letters appear scattered across unrelated words,
+    // so each query word must match inside a single title word (or as a plain substring).
+    matchesWithinWords(title, query) {
+      let lowerTitle = title.toLowerCase(), words = lowerTitle.split(/[^\p{L}\p{N}]+/u);
+      return query.split(/\s+/).filter(Boolean).every((part) => lowerTitle.includes(part) || words.some((word) => {
+        let i = 0;
+        for (let ch of word)
+          if (ch === part[i] && ++i === part.length)
+            return !0;
+        return !1;
+      }));
     },
     outranksSearch(cmd) {
       return !!cmd && cmd._score >= (cmd.isHistory ? PREFS2.historyTopMatchThreshold : PREFS2.topMatchThreshold);
