@@ -3305,7 +3305,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
                 });
                 return;
               }
-              matches.forEach((cmd, index) => addResult(cmd, index === 0));
+              matches.forEach((cmd, index) => addResult(cmd, this._isInPrefixMode && index === 0));
             } catch (e) {
               PREFS2.debugError("startQuery unexpected error:", e);
             }
