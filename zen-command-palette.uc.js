@@ -1615,7 +1615,7 @@
         continue;
       seenTitles.add(title), commands.push({
         key: `history:${url}`,
-        label: title,
+        label: `🏛️ ${title}`,
         searchLabel: title,
         isHistory: !0,
         command: () => openTrustedLinkIn(url, "current"),
