@@ -244,6 +244,8 @@
     static DYNAMIC_FOLDERS = "zen-command-palette.dynamic.folders";
     static DYNAMIC_CONTAINER_TABS = "zen-command-palette.dynamic.container-tabs";
     static DYNAMIC_ACTIVE_TABS = "zen-command-palette.dynamic.active-tabs";
+    static DYNAMIC_HISTORY = "zen-command-palette.dynamic.history";
+    static HISTORY_TOP_MATCH_THRESHOLD = "zen-command-palette.history-top-match-threshold";
     static DYNAMIC_UNLOAD_TABS = "zen-command-palette.dynamic.unload-tab";
     static DYNAMIC_EXTENSION_ENABLE_DISABLE = "zen-command-palette.dynamic.extension-enable-disable";
     static DYNAMIC_EXTENSION_UNINSTALL = "zen-command-palette.dynamic.extension-uninstall";
@@ -266,6 +268,8 @@
       [CommandPalettePREFS.DYNAMIC_FOLDERS]: !0,
       [CommandPalettePREFS.DYNAMIC_CONTAINER_TABS]: !1,
       [CommandPalettePREFS.DYNAMIC_ACTIVE_TABS]: !1,
+      [CommandPalettePREFS.DYNAMIC_HISTORY]: !0,
+      [CommandPalettePREFS.HISTORY_TOP_MATCH_THRESHOLD]: 2e3,
       [CommandPalettePREFS.DYNAMIC_UNLOAD_TABS]: !1,
       [CommandPalettePREFS.DYNAMIC_EXTENSION_ENABLE_DISABLE]: !1,
       [CommandPalettePREFS.DYNAMIC_EXTENSION_UNINSTALL]: !1,
@@ -291,6 +295,9 @@
     }
     static get topMatchThreshold() {
       return this.getPref(this.TOP_MATCH_THRESHOLD);
+    }
+    static get historyTopMatchThreshold() {
+      return this.getPref(this.HISTORY_TOP_MATCH_THRESHOLD);
     }
     static get loadAboutPages() {
       return this.getPref(this.DYNAMIC_ABOUT_PAGES);
@@ -1598,6 +1605,25 @@
     }
     return commands;
   }
+  async function generateHistoryCommands() {
+    let tabs = window.gZenWorkspaces?.workspaceEnabled ? window.gZenWorkspaces.allStoredTabs : Array.from(gBrowser.tabs), openUrls = new Set(tabs.map((tab) => tab.linkedBrowser?.currentURI?.spec).filter(Boolean)), { PlacesUtils } = ChromeUtils.importESModule("resource://gre/modules/PlacesUtils.sys.mjs"), db = await PlacesUtils.promiseDBConnection();
+    // ponytail: top 5000 by frecency, scored in JS per keystroke; move matching into SQL if history outgrows this
+    let rows = await db.executeCached("SELECT url, title FROM moz_places WHERE title NOT NULL AND title != '' AND visit_count > 0 AND hidden = 0 ORDER BY frecency DESC LIMIT 5000"), seenTitles = new Set(), commands = [];
+    for (let row of rows) {
+      let url = row.getResultByName("url"), title = row.getResultByName("title");
+      if (openUrls.has(url) || seenTitles.has(title))
+        continue;
+      seenTitles.add(title), commands.push({
+        key: `history:${url}`,
+        label: title,
+        searchLabel: title,
+        isHistory: !0,
+        command: () => openTrustedLinkIn(url, "current"),
+        icon: `page-icon:${url}`
+      });
+    }
+    return commands;
+  }
   async function generateUnloadTabCommands() {
     let commands = [], tabs = window.gZenWorkspaces?.workspaceEnabled ? window.gZenWorkspaces.allStoredTabs : Array.from(gBrowser.tabs);
     for (let tab of tabs) {
@@ -2583,6 +2609,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
             },
             { key: PREFS2.MIN_SCORE_THRESHOLD, label: "Min relevance score", type: "number" },
             { key: PREFS2.TOP_MATCH_THRESHOLD, label: "Score to rank above search", type: "number" },
+            { key: PREFS2.HISTORY_TOP_MATCH_THRESHOLD, label: "History score to rank above search", type: "number" },
             { key: PREFS2.DEBUG_MODE, label: "Enable debug logging", type: "bool" }
           ]
         },
@@ -2772,6 +2799,12 @@ Only proceed if you trust the source of this command. You will not be asked agai
         allowShortcuts: !1
       },
       {
+        func: generateHistoryCommands,
+        pref: PREFS2.DYNAMIC_HISTORY,
+        allowIcons: !1,
+        allowShortcuts: !1
+      },
+      {
         func: generateContainerTabCommands,
         pref: PREFS2.DYNAMIC_CONTAINER_TABS,
         allowIcons: !1,
@@ -2813,6 +2846,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
     Settings: null,
     _recentCommands: [],
     MAX_RECENT_COMMANDS: 20,
+    MAX_HISTORY_ROWS: 2,
     _dynamicCommandsCache: null,
     _userConfig: {},
     _globalActions: null,
@@ -2928,7 +2962,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
       return funcName.replace("generate", "").replace("Commands", "").replace(/([A-Z])/g, " $1").trim() + " Commands";
     },
     async getAllCommandsForConfig() {
-      let liveCommands = (await this.generateLiveCommands(!1)).map((c) => {
+      let liveCommands = (await this.generateLiveCommands(!1)).filter((c) => !c.isHistory).map((c) => {
         if (c.providerFunc) {
           let provider = this._dynamicCommandProviders.find((p) => p.func === c.providerFunc);
           if (provider)
@@ -2967,18 +3001,21 @@ Only proceed if you trust the source of this command. You will not be asked agai
           return [];
       } else if (cleanQuery.length < PREFS2.minQueryLength)
         return [];
-      let lowerQuery = cleanQuery.toLowerCase(), scoredCommands = allCommands.map((cmd) => {
-        let label = (cmd.label || "").replace(/^[^:]{1,30}: /, ""), key = (cmd.key || "").replace(/^[a-z0-9-]+:/, ""), tags = (cmd.tags || []).join(" "), labelScore = this.calculateFuzzyScore(label, lowerQuery), keyScore = this.calculateFuzzyScore(key, lowerQuery), tagsScore = this.calculateFuzzyScore(tags, lowerQuery), recencyBonus = 0, recentIndex = this._recentCommands.indexOf(cmd.key);
+      let historyRows = 0, lowerQuery = cleanQuery.toLowerCase(), scoredCommands = allCommands.filter((cmd) => !(isPrefixMode && cmd.isHistory)).map((cmd) => {
+        let label = cmd.searchLabel ?? (cmd.label || "").replace(/^[^:]{1,30}: /, ""), key = cmd.searchLabel === void 0 ? (cmd.key || "").replace(/^[a-z0-9-]+:/, "") : "", tags = (cmd.tags || []).join(" "), labelScore = this.calculateFuzzyScore(label, lowerQuery), keyScore = this.calculateFuzzyScore(key, lowerQuery), tagsScore = this.calculateFuzzyScore(tags, lowerQuery), recencyBonus = 0, recentIndex = this._recentCommands.indexOf(cmd.key);
         if (recentIndex > -1)
           recencyBonus = (this.MAX_RECENT_COMMANDS - recentIndex) * 2;
         let score = Math.max(labelScore * 1.5, keyScore, tagsScore * 0.5) + recencyBonus;
         return { cmd, score };
       }).filter((item) => item.score >= PREFS2.minScoreThreshold).filter((item) => this.commandIsVisible(item.cmd));
       scoredCommands.sort((a, b) => b.score - a.score);
-      let finalCmds = scoredCommands.map((item) => (item.cmd._score = item.score, item.cmd));
+      let finalCmds = scoredCommands.filter((item) => !item.cmd.isHistory || ++historyRows <= this.MAX_HISTORY_ROWS).map((item) => (item.cmd._score = item.score, item.cmd));
       if (isPrefixMode)
         return finalCmds.slice(0, PREFS2.maxCommandsPrefix);
       return finalCmds.slice(0, PREFS2.maxCommands);
+    },
+    outranksSearch(cmd) {
+      return !!cmd && cmd._score >= (cmd.isHistory ? PREFS2.historyTopMatchThreshold : PREFS2.topMatchThreshold);
     },
     async executeCommand(cmd) {
       if (!cmd)
@@ -3306,8 +3343,8 @@ Only proceed if you trust the source of this command. You will not be asked agai
                 });
                 return;
               }
-              matches.forEach((cmd, index) => addResult(cmd, index === 0 && (this._isInPrefixMode || cmd._score >= PREFS2.topMatchThreshold)));
-              if (!this._isInPrefixMode && matches[0]?._score >= PREFS2.topMatchThreshold) {
+              matches.forEach((cmd, index) => addResult(cmd, index === 0 && (this._isInPrefixMode || self.outranksSearch(cmd))));
+              if (!this._isInPrefixMode && self.outranksSearch(matches[0])) {
                 let { UrlbarSearchUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarSearchUtils.sys.mjs"), engine = UrlbarSearchUtils.getDefaultEngine(context.isPrivate);
                 if (engine)
                   add(this, new UrlbarResult({
