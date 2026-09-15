@@ -3396,13 +3396,13 @@ Only proceed if you trust the source of this command. You will not be asked agai
               attributes: { selectable: !0 },
               children: [
                 { name: "icon", tag: "img", classList: ["urlbarView-favicon"] },
+                { name: "pill", tag: "span", classList: ["zen-cmd-pill"] },
                 {
                   name: "title",
                   tag: "span",
                   classList: ["urlbarView-title"],
                   children: [{ name: "titleStrong", tag: "strong" }]
                 },
-                { name: "pill", tag: "span", classList: ["zen-cmd-pill"] },
                 { name: "shortcutContent", tag: "span", classList: ["urlbarView-shortcutContent"] }
               ]
             };
