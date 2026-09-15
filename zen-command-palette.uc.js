@@ -3312,6 +3312,16 @@ Only proceed if you trust the source of this command. You will not be asked agai
                 return;
               }
               matches.forEach((cmd, index) => addResult(cmd, index === 0 && (this._isInPrefixMode || cmd._score >= PREFS2.topMatchThreshold)));
+              if (!this._isInPrefixMode && matches[0]?._score >= PREFS2.topMatchThreshold) {
+                let { UrlbarSearchUtils } = ChromeUtils.importESModule("moz-src:///browser/components/urlbar/UrlbarSearchUtils.sys.mjs"), engine = UrlbarSearchUtils.getDefaultEngine(context.isPrivate);
+                if (engine)
+                  add(this, new UrlbarResult({
+                    type: UrlbarShared.RESULT_TYPE.SEARCH,
+                    source: UrlbarShared.RESULT_SOURCE.SEARCH,
+                    suggestedIndex: 1,
+                    payload: { engine: engine.name, icon: UrlbarShared.ICON.SEARCH_GLASS, query, title: query }
+                  }));
+              }
             } catch (e) {
               PREFS2.debugError("startQuery unexpected error:", e);
             }
