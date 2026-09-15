@@ -3194,7 +3194,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
             return "TestProvider";
           }
           get type() {
-            return UrlbarShared.PROVIDER_TYPE.HEURISTIC;
+            return this._isInPrefixMode ? UrlbarShared.PROVIDER_TYPE.HEURISTIC : UrlbarShared.PROVIDER_TYPE.PROFILE;
           }
           getPriority() {
             return this._isInPrefixMode ? 1e4 : 0;
