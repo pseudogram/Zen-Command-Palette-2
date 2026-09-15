@@ -1591,7 +1591,9 @@
         continue;
       commands.push({
         key: `switch-tab:${tab.label}`,
-        label: `Switch to Tab: ${tab.label}`,
+        label: tab.label,
+        searchLabel: tab.label,
+        pill: "Tab",
         command: () => {
           if (window.gZenWorkspaces?.workspaceEnabled)
             window.gZenWorkspaces.switchTabIfNeeded(tab);
@@ -1617,6 +1619,7 @@
         key: `history:${url}`,
         label: title,
         searchLabel: title,
+        pill: "History",
         isHistory: !0,
         command: () => openTrustedLinkIn(url, "current"),
         icon: `page-icon:${url}`
@@ -3302,7 +3305,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
                     keywords: cmd?.tags,
                     icon: cmd.icon || "chrome://browser/skin/trending.svg",
                     shortcutContent: shortcut,
-                    pill: cmd.isHistory ? "History" : "",
+                    pill: cmd.pill || "",
                     dynamicType: DYNAMIC_TYPE_NAME
                   }
                 });
