@@ -235,6 +235,7 @@
     static MAX_COMMANDS_PREFIX = "zen-command-palette.max-commands-prefix";
     static MIN_QUERY_LENGTH = "zen-command-palette.min-query-length";
     static MIN_SCORE_THRESHOLD = "zen-command-palette.min-score-threshold";
+    static TOP_MATCH_THRESHOLD = "zen-command-palette.top-match-threshold";
     static DYNAMIC_ABOUT_PAGES = "zen-command-palette.dynamic.about-pages";
     static DYNAMIC_SEARCH_ENGINES = "zen-command-palette.dynamic.search-engines";
     static DYNAMIC_EXTENSIONS = "zen-command-palette.dynamic.extensions";
@@ -256,6 +257,7 @@
       [CommandPalettePREFS.MAX_COMMANDS_PREFIX]: 50,
       [CommandPalettePREFS.MIN_QUERY_LENGTH]: 3,
       [CommandPalettePREFS.MIN_SCORE_THRESHOLD]: 150,
+      [CommandPalettePREFS.TOP_MATCH_THRESHOLD]: 250,
       [CommandPalettePREFS.DYNAMIC_ABOUT_PAGES]: !1,
       [CommandPalettePREFS.DYNAMIC_SEARCH_ENGINES]: !0,
       [CommandPalettePREFS.DYNAMIC_EXTENSIONS]: !1,
@@ -286,6 +288,9 @@
     }
     static get minScoreThreshold() {
       return this.getPref(this.MIN_SCORE_THRESHOLD);
+    }
+    static get topMatchThreshold() {
+      return this.getPref(this.TOP_MATCH_THRESHOLD);
     }
     static get loadAboutPages() {
       return this.getPref(this.DYNAMIC_ABOUT_PAGES);
@@ -2577,6 +2582,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
               type: "number"
             },
             { key: PREFS2.MIN_SCORE_THRESHOLD, label: "Min relevance score", type: "number" },
+            { key: PREFS2.TOP_MATCH_THRESHOLD, label: "Score to rank above search", type: "number" },
             { key: PREFS2.DEBUG_MODE, label: "Enable debug logging", type: "bool" }
           ]
         },
@@ -2974,7 +2980,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
         return { cmd, score };
       }).filter((item) => item.score >= PREFS2.minScoreThreshold).filter((item) => this.commandIsVisible(item.cmd));
       scoredCommands.sort((a, b) => b.score - a.score);
-      let finalCmds = scoredCommands.map((item) => item.cmd);
+      let finalCmds = scoredCommands.map((item) => (item.cmd._score = item.score, item.cmd));
       if (isPrefixMode)
         return finalCmds.slice(0, PREFS2.maxCommandsPrefix);
       return finalCmds.slice(0, PREFS2.maxCommands);
@@ -3305,7 +3311,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
                 });
                 return;
               }
-              matches.forEach((cmd, index) => addResult(cmd, this._isInPrefixMode && index === 0));
+              matches.forEach((cmd, index) => addResult(cmd, index === 0 && (this._isInPrefixMode || cmd._score >= PREFS2.topMatchThreshold)));
             } catch (e) {
               PREFS2.debugError("startQuery unexpected error:", e);
             }
