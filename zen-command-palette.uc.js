@@ -2874,12 +2874,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
         return 0;
       if (queryLen === 0)
         return 0;
-      if (targetLower === queryLower)
-        return 200;
-      if (targetLower.startsWith(queryLower))
-        return 100 + queryLen;
-      if (targetLower.split(/[\s-_]+/).map((word) => word[0]).join("") === queryLower)
-        return 90 + queryLen;
+      let floor = targetLower === queryLower ? 200 : targetLower.startsWith(queryLower) ? 100 + queryLen : targetLower.split(/[\s-_]+/).map((word) => word[0]).join("") === queryLower ? 90 + queryLen : 0;
       let score = 0, queryIndex = 0, lastMatchIndex = -1, consecutiveMatches = 0;
       for (let targetIndex = 0;targetIndex < targetLen; targetIndex++)
         if (queryIndex < queryLen && targetLower[targetIndex] === queryLower[queryIndex]) {
@@ -2896,7 +2891,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
           }
           score += bonus, lastMatchIndex = targetIndex, queryIndex++;
         }
-      return queryIndex === queryLen ? score : 0;
+      return queryIndex === queryLen ? Math.max(score, floor) : floor;
     },
     async generateDynamicCommands(useCache = !0) {
       let dynamicCommands;
