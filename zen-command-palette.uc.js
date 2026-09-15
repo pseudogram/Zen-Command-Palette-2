@@ -235,7 +235,6 @@
     static MAX_COMMANDS_PREFIX = "zen-command-palette.max-commands-prefix";
     static MIN_QUERY_LENGTH = "zen-command-palette.min-query-length";
     static MIN_SCORE_THRESHOLD = "zen-command-palette.min-score-threshold";
-    static TOP_MATCH_THRESHOLD = "zen-command-palette.top-match-threshold";
     static DYNAMIC_ABOUT_PAGES = "zen-command-palette.dynamic.about-pages";
     static DYNAMIC_SEARCH_ENGINES = "zen-command-palette.dynamic.search-engines";
     static DYNAMIC_EXTENSIONS = "zen-command-palette.dynamic.extensions";
@@ -257,7 +256,6 @@
       [CommandPalettePREFS.MAX_COMMANDS_PREFIX]: 50,
       [CommandPalettePREFS.MIN_QUERY_LENGTH]: 3,
       [CommandPalettePREFS.MIN_SCORE_THRESHOLD]: 150,
-      [CommandPalettePREFS.TOP_MATCH_THRESHOLD]: 800,
       [CommandPalettePREFS.DYNAMIC_ABOUT_PAGES]: !1,
       [CommandPalettePREFS.DYNAMIC_SEARCH_ENGINES]: !0,
       [CommandPalettePREFS.DYNAMIC_EXTENSIONS]: !1,
@@ -288,9 +286,6 @@
     }
     static get minScoreThreshold() {
       return this.getPref(this.MIN_SCORE_THRESHOLD);
-    }
-    static get topMatchThreshold() {
-      return this.getPref(this.TOP_MATCH_THRESHOLD);
     }
     static get loadAboutPages() {
       return this.getPref(this.DYNAMIC_ABOUT_PAGES);
@@ -2582,7 +2577,6 @@ Only proceed if you trust the source of this command. You will not be asked agai
               type: "number"
             },
             { key: PREFS2.MIN_SCORE_THRESHOLD, label: "Min relevance score", type: "number" },
-            { key: PREFS2.TOP_MATCH_THRESHOLD, label: "Score to outrank search", type: "number" },
             { key: PREFS2.DEBUG_MODE, label: "Enable debug logging", type: "bool" }
           ]
         },
@@ -2980,7 +2974,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
         return { cmd, score };
       }).filter((item) => item.score >= PREFS2.minScoreThreshold).filter((item) => this.commandIsVisible(item.cmd));
       scoredCommands.sort((a, b) => b.score - a.score);
-      let finalCmds = scoredCommands.map((item) => (item.cmd._score = item.score, item.cmd));
+      let finalCmds = scoredCommands.map((item) => item.cmd);
       if (isPrefixMode)
         return finalCmds.slice(0, PREFS2.maxCommandsPrefix);
       return finalCmds.slice(0, PREFS2.maxCommands);
@@ -3196,16 +3190,11 @@ Only proceed if you trust the source of this command. You will not be asked agai
 
         class ZenCommandProvider extends UrlbarProvider {
           _isInPrefixMode = !1;
-          _topScore = 0;
-          _outranksSearch() {
-            return this._isInPrefixMode || this._topScore >= PREFS2.topMatchThreshold;
-          }
           get name() {
             return "TestProvider";
           }
           get type() {
-            let T = UrlbarShared.PROVIDER_TYPE;
-            return this._outranksSearch() ? T.HEURISTIC : T.PROFILE ?? T.NETWORK ?? T.HEURISTIC;
+            return UrlbarShared.PROVIDER_TYPE.HEURISTIC;
           }
           getPriority() {
             return this._isInPrefixMode ? 1e4 : 0;
@@ -3225,10 +3214,10 @@ Only proceed if you trust the source of this command. You will not be asked agai
               if (PREFS2.prefixRequired)
                 return !1;
               if (input.length >= PREFS2.minQueryLength) {
-                let liveCommands = await self.generateLiveCommands(!0, !1), m = self.filterCommandsByInput(input, liveCommands, !1);
-                return this._topScore = m.length ? m[0]._score || 0 : 0, m.length > 0;
+                let liveCommands = await self.generateLiveCommands(!0, !1);
+                return self.filterCommandsByInput(input, liveCommands, !1).length > 0;
               }
-              return this._topScore = 0, !1;
+              return !1;
             } catch (e) {
               return PREFS2.debugError("isActive error:", e), !1;
             }
@@ -3316,7 +3305,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
                 });
                 return;
               }
-              matches.forEach((cmd, index) => addResult(cmd, this._outranksSearch() && index === 0));
+              matches.forEach((cmd, index) => addResult(cmd, this._isInPrefixMode && index === 0));
             } catch (e) {
               PREFS2.debugError("startQuery unexpected error:", e);
             }
@@ -3372,7 +3361,7 @@ Only proceed if you trust the source of this command. You will not be asked agai
         if (existingProvider)
           this.provider = existingProvider, PREFS2.debugLog("Using existing shared provider instance.");
         else
-          this.provider = new ZenCommandProvider, UrlbarProvidersManager.registerProvider(this.provider), PREFS2.debugLog("Zen Command Palette provider registered. PROVIDER_TYPE keys:", Object.keys(UrlbarShared.PROVIDER_TYPE || {}).join(","), "resolved type:", this.provider.type);
+          this.provider = new ZenCommandProvider, UrlbarProvidersManager.registerProvider(this.provider), PREFS2.debugLog("Zen Command Palette provider registered.");
       } catch (e) {
         PREFS2.debugError("Failed to create/register Urlbar provider:", e);
       }
