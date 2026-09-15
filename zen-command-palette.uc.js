@@ -3030,7 +3030,15 @@ Only proceed if you trust the source of this command. You will not be asked agai
       }));
     },
     outranksSearch(cmd) {
-      return !!cmd && cmd._score >= (cmd.isHistory ? PREFS2.historyTopMatchThreshold : PREFS2.topMatchThreshold);
+      if (!cmd)
+        return !1;
+      if (cmd.isHistory)
+        return cmd._score >= PREFS2.historyTopMatchThreshold;
+      // A search for "restart" must not restart the browser: built-in commands only take the Enter
+      // slot once you've run them from the palette (in-memory, resets on restart). Tabs use score alone.
+      if (cmd.searchLabel === void 0 && !this._recentCommands.includes(cmd.key))
+        return !1;
+      return cmd._score >= PREFS2.topMatchThreshold;
     },
     async executeCommand(cmd) {
       if (!cmd)
